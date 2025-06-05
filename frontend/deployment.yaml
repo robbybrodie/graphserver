@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graph-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: graph-frontend
+  template:
+    metadata:
+      labels:
+        app: graph-frontend
+    spec:
+      containers:
+      - name: nginx
+        image: quay.io/myorg/graph-frontend:latest
+        ports:
+        - containerPort: 8080
+      - name: oauth-proxy
+        image: quay.io/openshift/origin-oauth-proxy:latest
+        args:
+          - --provider=openshift
+          - --https-address=:8443
+          - --upstream=http://localhost:8080
+          - --client-id=graph-frontend
+          - --client-secret=REPLACE_ME
+          - --cookie-secret=REPLACE_ME_BASE64
+          - --email-domain=*
+          - --scope=user:info user:check-access
+          - --openshift-sar={"resource":"pods","verb":"get"}
+        ports:
+        - containerPort: 8443

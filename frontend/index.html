@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://cdn.jsdelivr.net/npm/neovis.js/dist/neovis.js"></script>
+</head>
+<body>
+  <div id="viz" style="width:100%; height:100vh;"></div>
+  <script>
+    const config = {
+      container_id: "viz",
+      server_url: "bolt://neo4j.graph-system.svc.cluster.local:7687",
+      server_user: "neo4j",
+      server_password: "changeme",
+      labels: { "Epic": { caption: "summary" }},
+      relationships: { "RELATES_TO": { caption: false }},
+      initial_cypher: "MATCH (n)-[r]->(m) RETURN n,r,m LIMIT 50"
+    };
+    const viz = new NeoVis.default(config);
+    viz.render();
+  </script>
+</body>
+</html>

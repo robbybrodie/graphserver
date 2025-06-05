@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: etl-config
+data:
+  neo4j-uri: "bolt://neo4j.graph-system.svc.cluster.local:7687"
+  neo4j-user: "neo4j"
+  # Cypher queries for data modeling
+  jira-cypher: |
+    // Create JIRA Issue
+    MERGE (i:Issue {key: $key})
+    SET i.summary = $summary,
+        i.description = $description,
+        i.status = $status,
+        i.priority = $priority,
+        i.created = datetime($created),
+        i.updated = datetime($updated)
+    
+    // Create Project
+    MERGE (p:Project {key: $project_key})
+    SET p.name = $project_name
+    
+    // Create relationships
+    MERGE (i)-[:BELONGS_TO]->(p)
+    
+    // Create assignee relationship if exists
+    FOREACH (assignee IN CASE WHEN $assignee IS NOT NULL THEN [$assignee] ELSE [] END |
+      MERGE (u:User {name: assignee})
+      MERGE (i)-[:ASSIGNED_TO]->(u)
+    )
+    
+    // Create reporter relationship
+    MERGE (r:User {name: $reporter})
+    MERGE (i)-[:REPORTED_BY]->(r)
+  
+  github-cypher: |
+    // Create GitHub Issue
+    MERGE (i:GitHubIssue {number: $number, repo: $repo})
+    SET i.title = $title,
+        i.body = $body,
+        i.state = $state,
+        i.created = datetime($created),
+        i.updated = datetime($updated)
+    
+    // Create Repository
+    MERGE (r:Repository {name: $repo})
+    SET r.owner = $owner,
+        r.full_name = $full_name
+    
+    // Create relationships
+    MERGE (i)-[:BELONGS_TO]->(r)
+    
+    // Create author relationship
+    MERGE (u:User {login: $author})
+    MERGE (i)-[:CREATED_BY]->(u)
+    
+    // Create assignee relationships
+    FOREACH (assignee IN $assignees |
+      MERGE (a:User {login: assignee})
+      MERGE (i)-[:ASSIGNED_TO]->(a)
+    )
+    
+    // Create label relationships
+    FOREACH (label IN $labels |
+      MERGE (l:Label {name: label})
+      MERGE (i)-[:HAS_LABEL]->(l)
+    )

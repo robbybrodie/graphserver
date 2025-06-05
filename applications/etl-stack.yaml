@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: etl-stack
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/myorg/graph-visualisation
+    targetRevision: HEAD
+    path: etl
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: graph-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

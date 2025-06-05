@@ -1,0 +1,12 @@
+acceptLicenseAgreement: "yes"
+neo4j:
+  name: neo4j
+  password: changeme
+service:
+  type: ClusterIP
+resources:
+  cpu: "500m"
+  memory: "1Gi"
+volumes:
+  data:
+    mode: dynamic

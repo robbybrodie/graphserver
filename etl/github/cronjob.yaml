@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: github-etl
+spec:
+  schedule: "0 */4 * * *"  # Every 4 hours
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: github-etl
+            image: quay.io/myorg/github-etl:latest
+            env:
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-credentials
+                  key: token
+            - name: GITHUB_ORG
+              value: "myorg"  # GitHub organization name
+            - name: GITHUB_REPOS
+              value: "repo1,repo2,repo3"  # Comma-separated list of repositories
+            - name: NEO4J_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: etl-config
+                  key: neo4j-uri
+            - name: NEO4J_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: etl-config
+                  key: neo4j-user
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: password
+            volumeMounts:
+            - name: etl-config
+              mountPath: /app/config
+              readOnly: true
+          volumes:
+          - name: etl-config
+            configMap:
+              name: etl-config

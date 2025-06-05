@@ -1,0 +1,12 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: graph-frontend
+spec:
+  to:
+    kind: Service
+    name: graph-frontend
+  port:
+    targetPort: oauth
+  tls:
+    termination: edge

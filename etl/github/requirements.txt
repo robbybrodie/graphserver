@@ -1,0 +1,6 @@
+requests==2.31.0
+neo4j==5.15.0
+python-dateutil==2.8.2
+pydantic==2.5.2
+tenacity==8.2.3
+PyGithub==1.59.1
