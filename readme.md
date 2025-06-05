@@ -45,7 +45,16 @@ This repository contains a complete GitOps specification for deploying a graph v
 graph-visualisation/
 ├── applications/
 │   ├── graph-stack.yaml              # Argo CD Application for main stack
-│   └── etl-stack.yaml                # Argo CD Application for ETL jobs
+│   ├── etl-stack.yaml                # Argo CD Application for ETL jobs
+│   └── company-integration-stack.yaml # Argo CD Application for company-specific JIRA-GitHub integration
+├── company-specific/                  # Company-specific JIRA-GitHub integration (separate for security)
+│   ├── schema/
+│   │   └── jira-github-integration-schema.cypher
+│   ├── etl/
+│   │   ├── jira-github-integration/
+│   │   └── shared/
+│   ├── applications/
+│   └── README.md
 ├── neo4j/
 │   ├── kustomization.yaml            # Kustomize configuration
 │   └── values.yaml                   # Helm values for Neo4j
@@ -302,9 +311,49 @@ oc create secret generic oauth-proxy-secrets \
 oc apply -f applications/graph-stack.yaml
 oc apply -f applications/etl-stack.yaml
 
+# For company-specific JIRA-GitHub integration (optional)
+# First configure company-specific secrets (see company-specific/README.md)
+oc apply -f applications/company-integration-stack.yaml
+
 # Verify applications are created
 oc get applications -n argocd
 ```
+
+### Step 10a: Company-Specific JIRA-GitHub Integration (Optional)
+
+If you want to deploy the advanced JIRA-GitHub integration for strategy-to-implementation traceability:
+
+```bash
+# Create company-specific secrets
+oc create secret generic jira-github-integration-secrets \
+  --from-literal=jira-server=https://your-jira-instance.atlassian.net \
+  --from-literal=jira-username=your-jira-username \
+  --from-literal=jira-token=your-jira-api-token \
+  --from-literal=github-token=your-github-personal-access-token \
+  -n graphserver
+
+# Build and push the company-specific ETL container
+cd company-specific/etl/jira-github-integration
+podman build -t quay.io/YOUR-QUAY-USERNAME/jira-github-integration-etl:latest .
+podman push quay.io/YOUR-QUAY-USERNAME/jira-github-integration-etl:latest
+
+# Apply the Neo4j schema
+oc port-forward svc/neo4j 7687:7687 -n graphserver &
+cat ../../schema/jira-github-integration-schema.cypher | cypher-shell -u neo4j -p YOUR-NEO4J-PASSWORD
+
+# Deploy the company integration
+oc apply -f applications/company-integration-stack.yaml
+
+cd ../../..
+```
+
+**Note**: The company-specific integration provides advanced features like:
+- Strategy-to-implementation traceability between JIRA and GitHub
+- Hierarchical filtering (only open items + closed items with open dependencies)
+- Cross-reference detection and technology tracking
+- Gap analysis for strategic planning
+
+See `company-specific/README.md` for detailed configuration and usage.
 
 ### Step 11: Configure Argo CD Repository Access
 

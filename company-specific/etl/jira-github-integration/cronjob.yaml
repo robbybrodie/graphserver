@@ -1,0 +1,263 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: jira-github-integration-etl
+  namespace: graphserver
+spec:
+  # Run daily at 2 AM
+  schedule: "0 2 * * *"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: jira-github-integration-etl
+            component: company-specific
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: jira-github-etl
+            image: jira-github-integration-etl:latest
+            imagePullPolicy: Always
+            env:
+            - name: JIRA_SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: jira-github-integration-secrets
+                  key: jira-server
+            - name: JIRA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: jira-github-integration-secrets
+                  key: jira-username
+            - name: JIRA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: jira-github-integration-secrets
+                  key: jira-token
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: jira-github-integration-secrets
+                  key: github-token
+            - name: NEO4J_URI
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: NEO4J_URI
+            - name: NEO4J_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: NEO4J_AUTH
+                  # Extract username from NEO4J_AUTH (format: username/password)
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: NEO4J_AUTH
+                  # Extract password from NEO4J_AUTH (format: username/password)
+            - name: NEO4J_DATABASE
+              value: "neo4j"
+            volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+            - name: logs
+              mountPath: /var/log
+            resources:
+              requests:
+                memory: "512Mi"
+                cpu: "250m"
+              limits:
+                memory: "1Gi"
+                cpu: "500m"
+            # Liveness probe to ensure container is healthy
+            livenessProbe:
+              exec:
+                command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+              initialDelaySeconds: 30
+              periodSeconds: 60
+              timeoutSeconds: 10
+              failureThreshold: 3
+          volumes:
+          - name: config
+            configMap:
+              name: jira-github-integration-config
+          - name: logs
+            emptyDir: {}
+          # Security context
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          # Node selection (optional - for dedicated nodes)
+          # nodeSelector:
+          #   workload: etl
+          # tolerations:
+          # - key: "etl-workload"
+          #   operator: "Equal"
+          #   value: "true"
+          #   effect: "NoSchedule"
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: jira-github-integration-incremental
+  namespace: graphserver
+spec:
+  # Run every 4 hours for incremental updates
+  schedule: "0 */4 * * *"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: jira-github-integration-etl
+            component: company-specific
+            sync-type: incremental
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: jira-github-etl-incremental
+            image: jira-github-integration-etl:latest
+            imagePullPolicy: Always
+            command: ["python", "jira_github_etl.py", "config.yaml", "--incremental"]
+            env:
+            - name: JIRA_SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: jira-github-integration-secrets
+                  key: jira-server
+            - name: JIRA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: jira-github-integration-secrets
+                  key: jira-username
+            - name: JIRA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: jira-github-integration-secrets
+                  key: jira-token
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: jira-github-integration-secrets
+                  key: github-token
+            - name: NEO4J_URI
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: NEO4J_URI
+            - name: NEO4J_USERNAME
+              value: "neo4j"  # Default Neo4j username
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: NEO4J_PASSWORD
+            - name: NEO4J_DATABASE
+              value: "neo4j"
+            volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+            - name: logs
+              mountPath: /var/log
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "100m"
+              limits:
+                memory: "512Mi"
+                cpu: "250m"
+          volumes:
+          - name: config
+            configMap:
+              name: jira-github-integration-config
+          - name: logs
+            emptyDir: {}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: jira-github-integration-cleanup
+  namespace: graphserver
+spec:
+  # Run weekly on Sunday at 1 AM for cleanup
+  schedule: "0 1 * * 0"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: jira-github-integration-etl
+            component: company-specific
+            sync-type: cleanup
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: jira-github-cleanup
+            image: jira-github-integration-etl:latest
+            imagePullPolicy: Always
+            command: ["python", "-c", "
+              from jira_github_etl import JiraGitHubETL;
+              etl = JiraGitHubETL('config.yaml');
+              etl._cleanup_stale_data();
+              etl.close()
+            "]
+            env:
+            - name: NEO4J_URI
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: NEO4J_URI
+            - name: NEO4J_USERNAME
+              value: "neo4j"
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: NEO4J_PASSWORD
+            - name: NEO4J_DATABASE
+              value: "neo4j"
+            volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+            resources:
+              requests:
+                memory: "128Mi"
+                cpu: "50m"
+              limits:
+                memory: "256Mi"
+                cpu: "100m"
+          volumes:
+          - name: config
+            configMap:
+              name: jira-github-integration-config
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000

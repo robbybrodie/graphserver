@@ -1,0 +1,147 @@
+# JIRA-GitHub Integration ETL Configuration
+# Company-Specific Settings
+
+# Data Sources
+jira:
+  server: "${JIRA_SERVER}"
+  username: "${JIRA_USERNAME}"
+  token: "${JIRA_TOKEN}"
+  projects:
+    - "AAPRFE"  # Ansible Automation Platform RFEs
+    - "ANSTRAT" # Ansible Strategy
+  
+  # Only fetch items that are:
+  # 1. Open/In Progress
+  # 2. Recently closed but referenced by open items
+  # 3. Part of hierarchical chain with open parent items
+  jql_filters:
+    open_items: "project in (AAPRFE, ANSTRAT) AND status in (Open, \"In Progress\", New, Reopened)"
+    recent_closed: "project in (AAPRFE, ANSTRAT) AND status in (Closed, Done, Resolved) AND updated >= -30d"
+    
+  batch_size: 50
+  rate_limit_delay: 1  # seconds between requests
+
+github:
+  token: "${GITHUB_TOKEN}"
+  
+  # Target repositories - focused on key Ansible ecosystem repos
+  repositories:
+    core_execution:
+      - "ansible/ansible"
+      - "ansible/ansible-compat" 
+      - "ansible/ansible-runner"
+      - "ansible/receptor"
+      - "ansible/ansible-builder"
+    
+    controller_networking:
+      - "ansible/awx"
+      - "ansible/receptor"
+    
+    collections_ecosystem:
+      - "ansible/galaxy-ng"
+      - "ansible/automation-hub-ui"
+      - "ansible/galaxy-importer"
+    
+    cicd_testing:
+      - "ansible/molecule"
+      - "ansible/ansible-lint"
+      - "ansible/test-infra"
+    
+    developer_tools:
+      - "ansible/ansible-navigator"
+      - "ansible/ansible-dev-tools"
+  
+  # Collection repositories (sample - will be dynamically discovered)
+  collection_orgs:
+    - "ansible-collections"
+  
+  # Only fetch open issues and recently closed PRs that might reference JIRA
+  filters:
+    states: ["open"]
+    labels_exclude: ["duplicate", "invalid", "wontfix"]
+    updated_since_days: 90  # Only items updated in last 90 days
+  
+  batch_size: 100
+  rate_limit_delay: 0.5  # seconds between requests
+
+# Neo4j Database
+neo4j:
+  uri: "${NEO4J_URI}"
+  username: "${NEO4J_USERNAME}"
+  password: "${NEO4J_PASSWORD}"
+  database: "${NEO4J_DATABASE}"
+  
+  # Connection settings
+  max_connection_lifetime: 3600
+  max_connection_pool_size: 50
+  connection_acquisition_timeout: 60
+
+# ETL Processing
+processing:
+  # Hierarchical filtering - only include closed items if they have open dependencies
+  include_closed_with_open_deps: true
+  
+  # Cross-reference detection
+  jira_reference_patterns:
+    - "(AAPRFE|ANSTRAT)-\\d+"
+    - "(?i)(fixes|addresses|implements|relates to)\\s+(AAPRFE|ANSTRAT)-\\d+"
+  
+  # Technology extraction patterns
+  technology_patterns:
+    - "(?i)(redis|vault|hashicorp|terraform|kubernetes|openshift)"
+    - "(?i)(ai|ml|machine learning|artificial intelligence)"
+    - "(?i)(eda|event.driven|automation mesh)"
+  
+  # Component mapping
+  component_mapping:
+    "controller": ["awx", "ansible-controller"]
+    "core": ["ansible", "ansible-core"]
+    "collections": ["galaxy", "automation-hub"]
+    "networking": ["receptor", "automation-mesh"]
+    "cicd": ["molecule", "ansible-lint", "test-infra"]
+
+# Scheduling
+schedule:
+  # Full sync frequency
+  full_sync_cron: "0 2 * * *"  # Daily at 2 AM
+  
+  # Incremental sync frequency  
+  incremental_sync_cron: "0 */4 * * *"  # Every 4 hours
+  
+  # Cross-reference linking frequency
+  link_analysis_cron: "30 3 * * *"  # Daily at 3:30 AM
+  
+  # Cleanup frequency
+  cleanup_cron: "0 1 * * 0"  # Weekly on Sunday at 1 AM
+
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "/var/log/jira-github-etl.log"
+  max_bytes: 10485760  # 10MB
+  backup_count: 5
+
+# Monitoring and Alerting
+monitoring:
+  metrics_enabled: true
+  health_check_port: 8080
+  
+  # Alert thresholds
+  max_processing_time_minutes: 60
+  max_error_rate_percent: 5
+  min_items_processed: 10
+
+# Data Quality
+data_quality:
+  # Validation rules
+  required_jira_fields: ["key", "summary", "status", "project"]
+  required_github_fields: ["number", "title", "state", "repository"]
+  
+  # Deduplication
+  dedupe_enabled: true
+  dedupe_similarity_threshold: 0.9
+  
+  # Data retention
+  retain_closed_items_days: 90
+  retain_orphaned_items_days: 30

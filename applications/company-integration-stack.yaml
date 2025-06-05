@@ -1,0 +1,77 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: company-integration-stack
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/your-org/graphserver
+    targetRevision: HEAD
+    path: company-specific
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: graphserver
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+  revisionHistoryLimit: 10
+  # Ensure this deploys after the main graph stack
+  info:
+    - name: 'Deployment Order'
+      value: 'Deploy after graph-stack'
+  # Add dependency on main graph stack
+  operation:
+    sync:
+      syncOptions:
+      - CreateNamespace=true
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: graphserver-complete-stack
+  namespace: argocd
+spec:
+  generators:
+  - list:
+      elements:
+      - name: graph-stack
+        path: .
+        priority: "100"
+      - name: company-integration
+        path: company-specific
+        priority: "200"
+  template:
+    metadata:
+      name: '{{name}}'
+      namespace: argocd
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/your-org/graphserver
+        targetRevision: HEAD
+        path: '{{path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: graphserver
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true
+        - PrunePropagationPolicy=foreground
+        - PruneLast=true
+      revisionHistoryLimit: 10
+  syncPolicy:
+    preserveResourcesOnDeletion: false
