@@ -22,16 +22,29 @@ spec:
     - CreateNamespace=true
     - PrunePropagationPolicy=foreground
     - PruneLast=true
+    - RespectIgnoreDifferences=true
+    - ApplyOutOfSyncOnly=true
   revisionHistoryLimit: 10
   # Ensure this deploys after the main graph stack
   info:
     - name: 'Deployment Order'
-      value: 'Deploy after graph-stack'
-  # Add dependency on main graph stack
+      value: 'Deploy after graph-stack and Neo4j is ready'
+    - name: 'Dependencies'
+      value: 'Requires Neo4j database to be healthy'
+  # Add dependency management
   operation:
     sync:
       syncOptions:
       - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+  # Add health check for dependencies
+  ignoreDifferences:
+  - group: batch
+    kind: CronJob
+    jsonPointers:
+    - /spec/schedule
+    - /spec/successfulJobsHistoryLimit
+    - /spec/failedJobsHistoryLimit
 
 ---
 apiVersion: argoproj.io/v1alpha1

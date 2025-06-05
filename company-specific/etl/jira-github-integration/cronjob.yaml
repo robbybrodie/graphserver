@@ -3,6 +3,10 @@ kind: CronJob
 metadata:
   name: jira-github-integration-etl
   namespace: graphserver
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"  # Deploy after Neo4j (wave 1) and basic ETL (wave 2)
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   # Run daily at 2 AM
   schedule: "0 2 * * *"

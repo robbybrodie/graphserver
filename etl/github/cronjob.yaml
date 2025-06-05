@@ -2,6 +2,8 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: github-etl
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"  # Deploy after Neo4j (wave 1)
 spec:
   schedule: "0 */4 * * *"  # Every 4 hours
   jobTemplate:

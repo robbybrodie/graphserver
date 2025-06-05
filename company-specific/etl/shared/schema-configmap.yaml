@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jira-github-schema
+  namespace: graphserver
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"  # Deploy early so it's available for schema setup
+data:
+  jira-github-integration-schema.cypher: |
+    // Neo4j Schema for JIRA-GitHub Integration
+    // Company-Specific Implementation for Strategy-to-Implementation Traceability
+
+    // ============================================================================
+    // CONSTRAINTS AND INDEXES
+    // ============================================================================
+
+    // JIRA Constraints
+    CREATE CONSTRAINT jira_issue_key IF NOT EXISTS FOR (j:JiraIssue) REQUIRE j.key IS UNIQUE;
+    CREATE CONSTRAINT jira_project_key IF NOT EXISTS FOR (p:JiraProject) REQUIRE p.key IS UNIQUE;
+
+    // GitHub Constraints  
+    CREATE CONSTRAINT github_issue_id IF NOT EXISTS FOR (g:GitHubIssue) REQUIRE (g.repository, g.number) IS UNIQUE;
+    CREATE CONSTRAINT github_repo_name IF NOT EXISTS FOR (r:GitHubRepository) REQUIRE r.fullName IS UNIQUE;
+
+    // Strategic Constraints
+    CREATE CONSTRAINT epic_id IF NOT EXISTS FOR (e:Epic) REQUIRE e.id IS UNIQUE;
+    CREATE CONSTRAINT feature_id IF NOT EXISTS FOR (f:Feature) REQUIRE f.id IS UNIQUE;
+    CREATE CONSTRAINT strategy_id IF NOT EXISTS FOR (s:Strategy) REQUIRE s.id IS UNIQUE;
+
+    // Cross-cutting Constraints
+    CREATE CONSTRAINT person_username IF NOT EXISTS FOR (p:Person) REQUIRE p.username IS UNIQUE;
+    CREATE CONSTRAINT technology_name IF NOT EXISTS FOR (t:Technology) REQUIRE t.name IS UNIQUE;
+    CREATE CONSTRAINT component_name IF NOT EXISTS FOR (c:Component) REQUIRE c.name IS UNIQUE;
+
+    // Performance Indexes
+    CREATE INDEX jira_issue_status IF NOT EXISTS FOR (j:JiraIssue) ON (j.status);
+    CREATE INDEX jira_issue_project IF NOT EXISTS FOR (j:JiraIssue) ON (j.project);
+    CREATE INDEX jira_issue_created IF NOT EXISTS FOR (j:JiraIssue) ON (j.created);
+    CREATE INDEX github_issue_state IF NOT EXISTS FOR (g:GitHubIssue) ON (g.state);
+    CREATE INDEX github_issue_repo IF NOT EXISTS FOR (g:GitHubIssue) ON (g.repository);
+    CREATE INDEX github_issue_created IF NOT EXISTS FOR (g:GitHubIssue) ON (g.created);
+
+    // ============================================================================
+    // VALIDATION QUERIES (for health checks)
+    // ============================================================================
+
+    // Test basic functionality
+    RETURN "JIRA-GitHub integration schema loaded successfully" as status;

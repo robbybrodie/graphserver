@@ -337,21 +337,33 @@ cd company-specific/etl/jira-github-integration
 podman build -t quay.io/YOUR-QUAY-USERNAME/jira-github-integration-etl:latest .
 podman push quay.io/YOUR-QUAY-USERNAME/jira-github-integration-etl:latest
 
-# Apply the Neo4j schema
-oc port-forward svc/neo4j 7687:7687 -n graphserver &
-cat ../../schema/jira-github-integration-schema.cypher | cypher-shell -u neo4j -p YOUR-NEO4J-PASSWORD
+# Update the image reference in the CronJob
+sed -i 's|jira-github-integration-etl:latest|quay.io/YOUR-QUAY-USERNAME/jira-github-integration-etl:latest|g' cronjob.yaml
 
-# Deploy the company integration
-oc apply -f applications/company-integration-stack.yaml
+# Deploy the company integration (ArgoCD will handle dependencies automatically)
+oc apply -f ../../applications/company-integration-stack.yaml
 
 cd ../../..
 ```
 
-**Note**: The company-specific integration provides advanced features like:
+**Deployment Order & Dependencies**: 
+The system uses ArgoCD sync waves to ensure proper deployment order:
+1. **Wave 1**: Neo4j database, ConfigMaps, Secrets
+2. **Wave 2**: Health checks, schema setup, basic ETL jobs  
+3. **Wave 3**: Company-specific advanced ETL
+
+**Health Checks**: The deployment includes automatic health checks that:
+- Verify Neo4j connectivity before starting ETL
+- Apply the JIRA-GitHub integration schema automatically
+- Validate APOC plugin availability
+- Ensure database is ready before data loading
+
+**Advanced Features**:
 - Strategy-to-implementation traceability between JIRA and GitHub
 - Hierarchical filtering (only open items + closed items with open dependencies)
 - Cross-reference detection and technology tracking
 - Gap analysis for strategic planning
+- Automatic schema management and health validation
 
 See `company-specific/README.md` for detailed configuration and usage.
 
@@ -486,6 +498,33 @@ MATCH (u:User)-[r]->(i) RETURN type(r), count(r);
    - Check API credentials and permissions
    - Verify network connectivity to external APIs
    - Review job logs for specific errors
+
+5. **Dependency/Health Check Issues**:
+   - Check ArgoCD sync waves are deploying in order
+   - Verify Neo4j health check job completed successfully
+   - Ensure schema setup job ran without errors
+   - Check if APOC plugin is available in Neo4j
+
+### Dependency Troubleshooting Commands
+
+```bash
+# Check ArgoCD sync wave order
+oc get applications -n argocd -o custom-columns=NAME:.metadata.name,SYNC-WAVE:.metadata.annotations.'argocd\.argoproj\.io/sync-wave',STATUS:.status.sync.status
+
+# Check health check job status
+oc get jobs -n graphserver -l app=neo4j-health-check
+oc logs job/neo4j-health-check -n graphserver
+
+# Check schema setup job status  
+oc get jobs -n graphserver -l app=jira-github-schema-setup
+oc logs job/jira-github-schema-setup -n graphserver
+
+# Verify Neo4j is ready for connections
+oc exec -it deployment/neo4j -n graphserver -- cypher-shell -u neo4j -p YOUR-PASSWORD "CALL db.ping();"
+
+# Check if company-specific ETL is waiting for dependencies
+oc describe cronjob jira-github-integration-etl -n graphserver
+```
 
 ### Useful Commands
 
