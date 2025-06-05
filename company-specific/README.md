@@ -298,6 +298,103 @@ kubectl create job --from=cronjob/jira-github-integration-etl manual-sync-$(date
 cypher-shell < company-specific/applications/jira-github-integration-stack.yaml
 ```
 
+## Schema Management & Migrations
+
+### ArgoCD-Managed Schema Updates
+
+When schema updates are needed after deployment with existing data, the system uses a GitOps-based migration approach:
+
+#### 1. **Migration Process**
+```bash
+# Update schema version in ConfigMap
+echo "2.1" > company-specific/etl/jira-github-integration/schema-migration.yaml
+
+# Add new migration script
+cat > migrations/004-new-feature.cypher << EOF
+// Migration 004: Add new feature
+CREATE INDEX new_feature_index IF NOT EXISTS FOR (n:NewNode) ON (n.property);
+EOF
+
+# Commit and push changes
+git add . && git commit -m "Schema migration v2.1: Add new feature"
+git push origin main
+```
+
+#### 2. **ArgoCD Sync Waves**
+The migration system uses ArgoCD sync waves for proper ordering:
+- **Wave 0**: Migration ConfigMap (contains migration scripts)
+- **Wave 1**: Migration Job (applies schema changes)
+- **Wave 2**: Health checks and schema validation
+- **Wave 3**: ETL jobs (resume normal operation)
+
+#### 3. **Automatic Backup & Rollback**
+- **Pre-Migration Backup**: Automatic data export before changes
+- **Failure Detection**: Migration job monitors for errors
+- **Automatic Rollback**: Restores from backup if migration fails
+- **Manual Rollback**: Documented process for manual intervention
+
+#### 4. **Migration Safety Features**
+- **Idempotent Scripts**: All migrations can be run multiple times safely
+- **Version Tracking**: Schema versions stored in database
+- **Data Validation**: Post-migration integrity checks
+- **Zero-Downtime**: ETL processes pause during migration
+
+### Schema Migration Workflow
+
+```mermaid
+graph TD
+    A[Developer Updates Schema] --> B[Commit to Git]
+    B --> C[ArgoCD Detects Changes]
+    C --> D[Deploy Migration ConfigMap]
+    D --> E[Run Migration Job]
+    E --> F{Migration Success?}
+    F -->|Yes| G[Update Schema Version]
+    F -->|No| H[Automatic Rollback]
+    G --> I[Resume ETL Operations]
+    H --> J[Alert Operations Team]
+```
+
+### Migration Commands
+
+```bash
+# Check current schema version
+kubectl exec -it deployment/neo4j -n graphserver -- \
+  cypher-shell -u neo4j -p PASSWORD \
+  "MATCH (v:SchemaVersion) RETURN v.version ORDER BY v.applied DESC LIMIT 1;"
+
+# Manually trigger migration
+kubectl create job --from=job/schema-migration-job manual-migration-$(date +%s) -n graphserver
+
+# Monitor migration progress
+kubectl logs job/schema-migration-job -n graphserver -f
+
+# Check migration status
+kubectl get jobs -n graphserver -l app=schema-migration
+```
+
+### Rollback Procedures
+
+#### Automatic Rollback
+- Triggered on migration failure
+- Uses APOC export/import for data restoration
+- Preserves data integrity
+
+#### Manual Rollback
+```bash
+# Stop ETL processes
+kubectl scale cronjob jira-github-integration-etl --replicas=0 -n graphserver
+
+# Connect to Neo4j
+kubectl port-forward svc/neo4j 7687:7687 -n graphserver
+
+# Restore from backup (in Neo4j)
+MATCH (n) DETACH DELETE n;
+CALL apoc.cypher.runFile('/tmp/backup-pre-migration.cypher');
+
+# Restart ETL
+kubectl scale cronjob jira-github-integration-etl --replicas=1 -n graphserver
+```
+
 ## Future Enhancements
 
 ### Planned Features
@@ -305,12 +402,16 @@ cypher-shell < company-specific/applications/jira-github-integration-stack.yaml
 - Advanced ML-based relationship detection
 - Custom dashboard for strategic planning
 - Integration with additional tools (Confluence, Slack)
+- Blue-green schema deployments
+- Automated migration testing
 
 ### Scalability Considerations
 - Horizontal scaling for large repositories
 - Incremental processing optimizations
 - Caching for frequently accessed data
 - Archive strategy for historical data
+- Schema versioning and compatibility
+- Migration performance optimization
 
 ## Support
 
