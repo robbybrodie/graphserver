@@ -27,9 +27,16 @@ CREATE CONSTRAINT component_name IF NOT EXISTS FOR (c:Component) REQUIRE c.name 
 CREATE INDEX jira_issue_status IF NOT EXISTS FOR (j:JiraIssue) ON (j.status);
 CREATE INDEX jira_issue_project IF NOT EXISTS FOR (j:JiraIssue) ON (j.project);
 CREATE INDEX jira_issue_created IF NOT EXISTS FOR (j:JiraIssue) ON (j.created);
+CREATE INDEX jira_issue_updated IF NOT EXISTS FOR (j:JiraIssue) ON (j.updated);
+CREATE INDEX jira_issue_type IF NOT EXISTS FOR (j:JiraIssue) ON (j.issueType);
 CREATE INDEX github_issue_state IF NOT EXISTS FOR (g:GitHubIssue) ON (g.state);
 CREATE INDEX github_issue_repo IF NOT EXISTS FOR (g:GitHubIssue) ON (g.repository);
 CREATE INDEX github_issue_created IF NOT EXISTS FOR (g:GitHubIssue) ON (g.created);
+CREATE INDEX github_issue_updated IF NOT EXISTS FOR (g:GitHubIssue) ON (g.updated);
+CREATE INDEX github_issue_org IF NOT EXISTS FOR (g:GitHubIssue) ON (g.organization);
+CREATE INDEX github_issue_type IF NOT EXISTS FOR (g:GitHubIssue) ON (g.type);
+CREATE INDEX component_category IF NOT EXISTS FOR (c:Component) ON (c.category);
+CREATE INDEX technology_category IF NOT EXISTS FOR (t:Technology) ON (t.category);
 
 // ============================================================================
 // NODE CREATION PROCEDURES
@@ -182,6 +189,83 @@ CALL apoc.custom.asFunction(
                     then round(implementationMentions * 100.0 / strategicMentions, 2) 
                     else 0 end
    }) as technologyAdoption',
+  'read'
+);
+
+// Repository ecosystem analysis - analyze all Ansible ecosystem repositories
+CALL apoc.custom.asFunction(
+  'analyzeRepositoryEcosystem',
+  'MATCH (g:GitHubIssue)
+   WHERE g.organization IN ["ansible", "ansible-collections", "ansible-community", "RedHatInsights"]
+   WITH g.repository as repo, 
+        count(g) as totalIssues,
+        count(case when g.state = "open" then 1 end) as openIssues,
+        max(g.updated) as lastActivity
+   WITH repo,
+        totalIssues,
+        openIssues,
+        lastActivity,
+        case 
+          when repo CONTAINS "ansible-core" or repo CONTAINS "/ansible" then "core"
+          when repo CONTAINS "awx" or repo CONTAINS "channels" then "controller"
+          when repo CONTAINS "galaxy" or repo CONTAINS "automation-hub" or repo CONTAINS "collections" then "collections"
+          when repo CONTAINS "receptor" then "networking"
+          when repo CONTAINS "builder" or repo CONTAINS "execution-environment" or repo CONTAINS "navigator" then "execution_environments"
+          when repo CONTAINS "runner" then "runner"
+          when repo CONTAINS "molecule" or repo CONTAINS "lint" or repo CONTAINS "test" or repo CONTAINS "ara" then "cicd"
+          when repo CONTAINS "dev-tools" or repo CONTAINS "metadata" then "developer_tools"
+          when repo CONTAINS "event-driven" or repo CONTAINS "eda" then "event_driven"
+          when repo CONTAINS "insights" then "insights"
+          else "other"
+        end as category
+   RETURN collect({
+     repository: repo,
+     category: category,
+     totalIssues: totalIssues,
+     openIssues: openIssues,
+     closedIssues: totalIssues - openIssues,
+     lastActivity: lastActivity,
+     activityScore: case when lastActivity > datetime() - duration("P30D") then "high"
+                         when lastActivity > datetime() - duration("P90D") then "medium"
+                         else "low" end
+   }) as repositoryEcosystem',
+  'read'
+);
+
+// Cross-ecosystem impact analysis
+CALL apoc.custom.asFunction(
+  'analyzeCrossEcosystemImpact',
+  'MATCH (j:JiraIssue)
+   WHERE j.project IN ["ANSTRAT", "AAPRFE"] AND j.status IN ["Open", "In Progress", "New"]
+   OPTIONAL MATCH (j)-[:TRACKED_IN|IMPLEMENTED_BY]->(g:GitHubIssue)
+   WITH j, collect(g.repository) as implementingRepos
+   UNWIND j.components as component
+   WITH component, 
+        count(j) as strategicItems,
+        size([repo IN apoc.coll.flatten(collect(implementingRepos)) WHERE repo IS NOT NULL]) as implementationRepos,
+        apoc.coll.flatten(collect(implementingRepos)) as allRepos
+   WITH component,
+        strategicItems,
+        implementationRepos,
+        size(apoc.coll.toSet(allRepos)) as uniqueRepos,
+        [repo IN apoc.coll.toSet(allRepos) WHERE repo IS NOT NULL |
+         case 
+           when repo CONTAINS "ansible-core" or repo CONTAINS "/ansible" then "core"
+           when repo CONTAINS "awx" then "controller"
+           when repo CONTAINS "galaxy" or repo CONTAINS "collections" then "collections"
+           when repo CONTAINS "receptor" then "networking"
+           when repo CONTAINS "builder" or repo CONTAINS "navigator" then "execution_environments"
+           when repo CONTAINS "molecule" or repo CONTAINS "lint" then "cicd"
+           else "other"
+         end] as impactedCategories
+   RETURN collect({
+     component: component,
+     strategicItems: strategicItems,
+     implementationRepos: implementationRepos,
+     uniqueRepos: uniqueRepos,
+     impactedCategories: apoc.coll.toSet(impactedCategories),
+     ecosystemBreadth: size(apoc.coll.toSet(impactedCategories))
+   }) as crossEcosystemImpact',
   'read'
 );
 

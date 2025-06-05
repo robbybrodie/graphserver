@@ -103,7 +103,14 @@ docker push your-registry/jira-github-integration-etl:latest
 
 ### Data Sources
 - **JIRA Projects**: AAPRFE (RFEs), ANSTRAT (Strategy)
-- **GitHub Repositories**: Core Ansible ecosystem repos
+- **GitHub Repositories**: Complete Ansible ecosystem (25+ repositories)
+  - Core Execution & Orchestration: ansible/ansible, ansible-compat, ansible-runner, receptor, ansible-builder
+  - Execution Environments: execution-environment, galaxy-importer, ansible-navigator
+  - Controller & Networking: awx, receptor, django/channels
+  - Collections & Content: ansible-collections, galaxy-ng, automation-hub-ui
+  - CI/CD & Testing: molecule, ansible-lint, tox-ansible, test-infra, ara
+  - Developer Tools: ansible-navigator, ansible-dev-tools, collections-metadata
+  - Event-Driven & Other: event-driven-ansible, ansible.eda, insights-core
 - **Filtering**: Only open items + closed items with open dependencies
 
 ### Scheduling
@@ -182,6 +189,42 @@ RETURN t.name as technology,
        round(count(g) * 100.0 / strategic_mentions, 2) as implementation_ratio
 ORDER BY strategic_mentions DESC;
 ```
+
+### Repository Ecosystem Analysis
+```cypher
+// Analyze the complete Ansible ecosystem
+RETURN custom.analyzeRepositoryEcosystem() as ecosystem;
+
+// Results show activity levels across all 25+ repositories:
+// - Core: ansible/ansible, ansible-compat, ansible-runner
+// - Controller: awx, channels
+// - Collections: galaxy-ng, automation-hub-ui, ansible-collections
+// - Execution Environments: ansible-builder, execution-environment, ansible-navigator
+// - CI/CD: molecule, ansible-lint, test-infra, tox-ansible, ara
+// - Developer Tools: ansible-dev-tools, collections-metadata
+// - Event-Driven: event-driven-ansible, ansible.eda
+// - Insights: insights-core
+```
+
+### Cross-Ecosystem Impact Analysis
+```cypher
+// Analyze how strategic items impact different repository categories
+RETURN custom.analyzeCrossEcosystemImpact() as impact;
+
+// Shows:
+// - Which JIRA components affect which GitHub repository categories
+// - Breadth of ecosystem impact per strategic initiative
+// - Implementation distribution across repository types
+```
+
+### Advanced Analytics Functions
+The schema includes custom functions for comprehensive analysis:
+
+- **`custom.findOrphanedStrategicItems()`**: Strategic items without GitHub implementation
+- **`custom.findImplementationGapsByComponent()`**: Gap analysis by component
+- **`custom.trackTechnologyAdoption()`**: Technology adoption patterns
+- **`custom.analyzeRepositoryEcosystem()`**: Complete ecosystem health analysis
+- **`custom.analyzeCrossEcosystemImpact()`**: Cross-repository impact assessment
 
 ## Monitoring
 

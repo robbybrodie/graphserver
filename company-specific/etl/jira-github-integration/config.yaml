@@ -24,32 +24,50 @@ jira:
 github:
   token: "${GITHUB_TOKEN}"
   
-  # Target repositories - focused on key Ansible ecosystem repos
+  # Target repositories - ALL Ansible ecosystem repos from your original list
   repositories:
-    core_execution:
-      - "ansible/ansible"
-      - "ansible/ansible-compat" 
-      - "ansible/ansible-runner"
-      - "ansible/receptor"
-      - "ansible/ansible-builder"
+    core_execution_orchestration:
+      - "ansible/ansible"                    # Execution engine and CLI
+      - "ansible/ansible-compat"             # Compatibility utilities for collections/plugins
+      - "ansible/ansible-runner"             # Programmatic Ansible execution wrapper
+      - "ansible/receptor"                   # Mesh networking layer for AAP
+      - "ansible/ansible-builder"            # Tool to create execution environments
+    
+    execution_environments_packaging:
+      - "ansible/execution-environment"      # Base container images for EEs
+      - "ansible/galaxy-importer"            # Validates collections for Automation Hub
+      - "ansible/ansible-navigator"          # TUI/CLI to interact with playbooks and EEs
     
     controller_networking:
-      - "ansible/awx"
-      - "ansible/receptor"
+      - "ansible/awx"                        # Upstream for AAP controller
+      - "ansible/receptor"                   # Reliable worker mesh communication
+      - "django/channels"                    # Backend framework and async layer
     
-    collections_ecosystem:
-      - "ansible/galaxy-ng"
-      - "ansible/automation-hub-ui"
-      - "ansible/galaxy-importer"
+    collections_content_ecosystem:
+      - "ansible-collections"                # Namespaced collections (e.g., community.general)
+      - "ansible/galaxy-ng"                  # Backend for Galaxy/Automation Hub
+      - "ansible/automation-hub-ui"          # Frontend for Automation Hub
+    
+    automation_mesh:
+      - "ansible/receptor"                   # Distributed messaging layer
+      - "ansible/ansible-runner"             # Used for remote execution with mesh
     
     cicd_testing:
-      - "ansible/molecule"
-      - "ansible/ansible-lint"
-      - "ansible/test-infra"
+      - "ansible/molecule"                   # Testing framework for roles
+      - "ansible/ansible-lint"               # Linting and policy enforcement
+      - "ansible-community/tox-ansible"      # Testing roles across versions
+      - "ansible/test-infra"                 # CI tooling for collections
+      - "ansible-community/ara"              # Ansible Run Analysis and logging
     
-    developer_tools:
-      - "ansible/ansible-navigator"
-      - "ansible/ansible-dev-tools"
+    developer_tools_apis:
+      - "ansible/ansible-navigator"          # Developer UI for exploring playbooks
+      - "ansible/ansible-dev-tools"          # Helper tools for collection dev
+      - "ansible/collections-metadata"       # Schema validator for collection metadata
+    
+    other_components:
+      - "RedHatInsights/insights-core"       # Policy and drift detection integrations
+      - "ansible/event-driven-ansible"       # Rulebooks, server, and EDA UI
+      - "ansible-collections/ansible.eda"    # EDA-specific collection
   
   # Collection repositories (sample - will be dynamically discovered)
   collection_orgs:
@@ -92,13 +110,18 @@ processing:
     - "(?i)(ai|ml|machine learning|artificial intelligence)"
     - "(?i)(eda|event.driven|automation mesh)"
   
-  # Component mapping
+  # Component mapping - expanded to cover all repositories
   component_mapping:
-    "controller": ["awx", "ansible-controller"]
-    "core": ["ansible", "ansible-core"]
-    "collections": ["galaxy", "automation-hub"]
+    "controller": ["awx", "ansible-controller", "channels"]
+    "core": ["ansible", "ansible-core", "ansible-compat"]
+    "collections": ["galaxy", "automation-hub", "galaxy-ng", "automation-hub-ui", "galaxy-importer", "ansible-collections"]
     "networking": ["receptor", "automation-mesh"]
-    "cicd": ["molecule", "ansible-lint", "test-infra"]
+    "execution_environments": ["ansible-builder", "execution-environment", "ansible-navigator"]
+    "runner": ["ansible-runner"]
+    "cicd": ["molecule", "ansible-lint", "test-infra", "tox-ansible", "ara"]
+    "developer_tools": ["ansible-navigator", "ansible-dev-tools", "collections-metadata"]
+    "event_driven": ["event-driven-ansible", "ansible.eda"]
+    "insights": ["insights-core"]
 
 # Scheduling
 schedule:
