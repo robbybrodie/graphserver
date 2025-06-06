@@ -202,6 +202,9 @@ oc create secret generic argocd-redis --from-literal=auth="" -n argocd
 SECRET_KEY=$(openssl rand -base64 32)
 oc patch secret argocd-secret -n argocd --type merge -p="{\"data\":{\"server.secretkey\":\"$(echo -n $SECRET_KEY | base64)\"}}"
 
+# Configure ArgoCD server to run in insecure mode (required for OpenShift routes)
+oc patch configmap argocd-cmd-params-cm -n argocd --type merge -p='{"data":{"server.insecure":"true"}}'
+
 # Add dex configuration to argocd-cm ConfigMap
 oc patch configmap argocd-cm -n argocd --type merge -p='{"data":{"dex.config":"issuer: https://argocd-dex-server.argocd.svc.cluster.local:5556/dex\nstorage:\n  type: memory\nweb:\n  http: 0.0.0.0:5556\nlogger:\n  level: \"debug\"\n  format: text\nconnectors:\n- type: oidc\n  id: oidc\n  name: OpenShift\n  config:\n    issuer: https://kubernetes.default.svc.cluster.local\n    clientID: system:serviceaccount:argocd:argocd-dex-server\n    clientSecret: \"\"\n    requestedScopes: [\"openid\", \"profile\", \"email\", \"groups\"]\n    requestedIDTokenClaims: {\"groups\": {\"essential\": true}}\nstaticClients:\n- id: argo-cd-cli\n  name: \"Argo CD CLI\"\n  public: true\n- id: argo-cd\n  name: \"Argo CD\"\n  secret: \"$2a$10$mivhwttXM0VwgbPLQxcZJOa.ClzGraLqXtx5Mq8gLjHA3wTTILjjK\"\n  redirectURIs:\n  - https://argocd-server/auth/callback"}}'
 
@@ -221,8 +224,8 @@ oc wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server -n arg
 oc wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-repo-server -n argocd --timeout=300s
 oc wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-application-controller -n argocd --timeout=300s
 
-# Create Argo CD route
-oc create route edge argocd-server --service=argocd-server --port=https --insecure-policy=Redirect -n argocd
+# Create Argo CD route (using HTTP port since server runs in insecure mode)
+oc create route edge argocd-server --service=argocd-server --port=http --insecure-policy=Redirect -n argocd
 
 # Get Argo CD admin password
 ARGOCD_PASSWORD=$(oc get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d)
