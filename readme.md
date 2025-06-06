@@ -129,6 +129,64 @@ sudo dnf install -y jq
 ### Argo CD Installation
 If Argo CD is not already installed on your ROSA cluster:
 
+#### 1. Access Your ROSA Cluster
+
+First, you need to connect to your ROSA cluster. There are several ways to do this:
+
+**Option A: Using ROSA CLI (Recommended)**
+```bash
+# Install ROSA CLI if not already installed
+curl -Ls https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz | tar xz
+sudo mv rosa /usr/local/bin/rosa
+
+# Login to your Red Hat account
+rosa login
+
+# List your clusters
+rosa list clusters
+
+# Get login command for your cluster
+rosa describe cluster YOUR-CLUSTER-NAME --output json | jq -r '.api.url'
+
+# Login using the cluster API URL
+oc login https://api.YOUR-CLUSTER-NAME.RANDOM-STRING.p1.openshiftapps.com:6443
+```
+
+**Option B: Using OpenShift Console**
+```bash
+# 1. Go to https://console.redhat.com/openshift
+# 2. Select your ROSA cluster
+# 3. Click "Open Console" 
+# 4. In the OpenShift console, click your username (top right)
+# 5. Select "Copy login command"
+# 6. Click "Display Token"
+# 7. Copy and run the oc login command
+
+# Example of what you'll copy:
+oc login --token=sha256~EXAMPLE-TOKEN --server=https://api.YOUR-CLUSTER.p1.openshiftapps.com:6443
+```
+
+**Option C: Using Cluster Credentials**
+```bash
+# If you have cluster admin credentials
+oc login -u kubeadmin -p YOUR-KUBEADMIN-PASSWORD https://api.YOUR-CLUSTER.p1.openshiftapps.com:6443
+```
+
+#### 2. Verify Cluster Access
+```bash
+# Verify you're connected to the right cluster
+oc whoami
+oc cluster-info
+
+# Check your permissions
+oc auth can-i create namespace
+oc auth can-i create deployment
+
+# List existing projects
+oc get projects
+```
+
+#### 3. Install Argo CD
 ```bash
 # Create Argo CD namespace
 oc create namespace argocd
@@ -144,6 +202,26 @@ oc get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password
 
 # Create Argo CD route
 oc create route edge argocd-server --service=argocd-server --port=https --insecure-policy=Redirect -n argocd
+
+# Get the Argo CD URL
+echo "Argo CD URL: https://$(oc get route argocd-server -n argocd -o jsonpath='{.spec.host}')"
+```
+
+#### 4. Access Argo CD UI
+```bash
+# Get the Argo CD URL and admin password
+ARGOCD_URL="https://$(oc get route argocd-server -n argocd -o jsonpath='{.spec.host}')"
+ARGOCD_PASSWORD=$(oc get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d)
+
+echo "Argo CD URL: $ARGOCD_URL"
+echo "Username: admin"
+echo "Password: $ARGOCD_PASSWORD"
+
+# Open in browser (macOS)
+open "$ARGOCD_URL"
+
+# Open in browser (Linux)
+xdg-open "$ARGOCD_URL"
 ```
 
 ## Deployment Steps
