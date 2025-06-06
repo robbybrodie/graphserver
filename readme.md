@@ -586,6 +586,66 @@ MATCH (u:User)-[r]->(i) RETURN type(r), count(r);
 
 ## Troubleshooting
 
+### ArgoCD Issues
+
+#### ArgoCD Redis Security Context Constraint (SCC) Issues
+
+If you see ArgoCD Redis pods failing with SCC violations like:
+```
+pods "argocd-redis-6496f58877-" is forbidden: unable to validate against any security context constraint: 
+[provider "anyuid": Forbidden: not usable by user or serviceaccount, provider restricted-v2: 
+.initContainers[0].runAsUser: Invalid value: 999: must be in the ranges: [1000800000, 1000809999]]
+```
+
+**Root Cause**: ArgoCD Redis deployment tries to run as user ID 999, but OpenShift's restricted SCC requires user IDs in the range 1000800000-1000809999.
+
+**Solution**:
+```bash
+# 1. Remove the hardcoded runAsUser from Redis deployment
+oc patch deployment argocd-redis -n argocd --type='json' -p='[{"op": "remove", "path": "/spec/template/spec/securityContext/runAsUser"}]'
+
+# 2. Check if Redis secret has empty password (common issue)
+oc get secret argocd-redis -n argocd -o jsonpath="{.data.auth}" | base64 -d
+
+# 3. If password is empty, generate and set a new one
+oc patch secret argocd-redis -n argocd --type='json' -p='[{"op": "replace", "path": "/data/auth", "value": "'$(openssl rand -base64 32 | base64 -w 0)'"}]'
+
+# 4. Restart the Redis deployment
+oc rollout restart deployment/argocd-redis -n argocd
+
+# 5. Verify the rollout completed successfully
+oc rollout status deployment/argocd-redis -n argocd
+
+# 6. Check that all ArgoCD components are running
+oc get pods -n argocd
+```
+
+**Verification**:
+```bash
+# All ArgoCD pods should be in Running state
+oc get pods -n argocd | grep -E "(argocd-redis|argocd-server|argocd-application-controller)"
+
+# Check ArgoCD application topology - Redis should show as healthy
+# Access ArgoCD UI and verify no warnings on Redis component
+```
+
+#### ArgoCD Login Credentials
+
+To retrieve your ArgoCD admin credentials:
+
+```bash
+# Get ArgoCD admin password
+oc get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d
+
+# Get ArgoCD server URL
+oc get route argocd-server -n argocd -o jsonpath="{.spec.host}"
+
+# Display login information
+echo "ArgoCD URL: https://$(oc get route argocd-server -n argocd -o jsonpath='{.spec.host}')"
+echo "Username: admin"
+echo "Password: $(oc get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d)"
+```
+
 ### Common Issues
 
 1. **Pod ImagePullBackOff**:
