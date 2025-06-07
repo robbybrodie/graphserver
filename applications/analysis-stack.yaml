@@ -1,0 +1,226 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: analysis-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR-USERNAME/graphserver.git
+    targetRevision: HEAD
+    path: analysis
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: graph-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+# Analysis Query Runner Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: query-runner
+  namespace: graph-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: query-runner
+  template:
+    metadata:
+      labels:
+        app: query-runner
+    spec:
+      containers:
+      - name: query-runner
+        image: python:3.11-slim
+        command: ["/bin/bash"]
+        args: ["-c", "while true; do sleep 3600; done"]  # Keep container running
+        env:
+        - name: NEO4J_URI
+          valueFrom:
+            configMapKeyRef:
+              name: etl-config
+              key: neo4j-uri
+        - name: NEO4J_USER
+          valueFrom:
+            configMapKeyRef:
+              name: etl-config
+              key: neo4j-user
+        - name: NEO4J_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: neo4j-auth
+              key: password
+        volumeMounts:
+        - name: analysis-tools
+          mountPath: /app/analysis
+          readOnly: true
+        - name: reports
+          mountPath: /app/reports
+        workingDir: /app/analysis/tools
+      volumes:
+      - name: analysis-tools
+        configMap:
+          name: analysis-tools
+      - name: reports
+        emptyDir: {}
+      restartPolicy: Always
+---
+# Analysis Tools ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: analysis-tools
+  namespace: graph-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+data:
+  query-runner.py: |
+    #!/usr/bin/env python3
+    """
+    Query Runner Tool for Graph Analysis
+    Executes pre-built Cypher queries and formats results for analysis
+    """
+    
+    import os
+    import sys
+    import json
+    import argparse
+    import logging
+    from datetime import datetime
+    from typing import Dict, List, Any, Optional
+    from pathlib import Path
+    import csv
+    
+    # Install required packages
+    os.system("pip install neo4j==5.15.0")
+    
+    from neo4j import GraphDatabase
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    logger = logging.getLogger(__name__)
+    
+    class QueryRunner:
+        def __init__(self):
+            self.neo4j_uri = os.getenv('NEO4J_URI', 'bolt://localhost:7687')
+            self.neo4j_user = os.getenv('NEO4J_USER', 'neo4j')
+            self.neo4j_password = os.getenv('NEO4J_PASSWORD')
+            
+            if not self.neo4j_password:
+                raise ValueError("NEO4J_PASSWORD environment variable is required")
+            
+            # Initialize Neo4j driver
+            self.driver = GraphDatabase.driver(
+                self.neo4j_uri,
+                auth=(self.neo4j_user, self.neo4j_password)
+            )
+        
+        def run_query_direct(self, query: str, parameters: Dict = None) -> List[Dict]:
+            """Run a query directly from string"""
+            with self.driver.session() as session:
+                result = session.run(query, parameters or {})
+                return [record.data() for record in result]
+        
+        def close(self):
+            """Close Neo4j driver connection"""
+            if self.driver:
+                self.driver.close()
+    
+    if __name__ == "__main__":
+        runner = QueryRunner()
+        
+        # Example: Run a simple query to test connectivity
+        try:
+            result = runner.run_query_direct("MATCH (n) RETURN count(n) as total_nodes")
+            print(f"Connected to Neo4j. Total nodes: {result[0]['total_nodes']}")
+        except Exception as e:
+            print(f"Connection failed: {e}")
+        finally:
+            runner.close()
+
+---
+# Analysis CronJob for Regular Reports
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: analysis-reports
+  namespace: graph-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  schedule: "0 8 * * 1"  # Every Monday at 8 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: analysis-reports
+            image: python:3.11-slim
+            command: ["/bin/bash"]
+            args: 
+            - "-c"
+            - |
+              pip install neo4j==5.15.0
+              cd /app/analysis/tools
+              python query-runner.py --category gap-analysis --report --report-dir /app/reports
+              python query-runner.py --category relationship-mapping --report --report-dir /app/reports
+              python query-runner.py --category impact-analysis --report --report-dir /app/reports
+              echo "Reports generated in /app/reports"
+            env:
+            - name: NEO4J_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: etl-config
+                  key: neo4j-uri
+            - name: NEO4J_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: etl-config
+                  key: neo4j-user
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: password
+            volumeMounts:
+            - name: analysis-tools
+              mountPath: /app/analysis
+              readOnly: true
+            - name: reports
+              mountPath: /app/reports
+          volumes:
+          - name: analysis-tools
+            configMap:
+              name: analysis-tools
+          - name: reports
+            persistentVolumeClaim:
+              claimName: analysis-reports-pvc
+          restartPolicy: OnFailure
+---
+# PVC for storing analysis reports
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: analysis-reports-pvc
+  namespace: graph-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

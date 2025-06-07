@@ -52,10 +52,12 @@ graphserver/
 ├── etl/
 │   ├── jira/                     # Discrete Jira ETL
 │   │   ├── jira_etl.py          # Core Jira extraction
+│   │   ├── cronjob.yaml         # Kubernetes CronJob
 │   │   ├── Dockerfile
 │   │   └── requirements.txt
 │   ├── github/                   # Discrete GitHub ETL  
 │   │   ├── github_etl.py        # Core GitHub extraction
+│   │   ├── cronjob.yaml         # Kubernetes CronJob
 │   │   ├── Dockerfile
 │   │   └── requirements.txt
 │   ├── cross-reference/          # Cross-system relationship processing
@@ -70,19 +72,20 @@ graphserver/
 │   │   ├── gap-analysis.cypher
 │   │   └── impact-analysis.cypher
 │   └── tools/                    # Analysis utilities
-│       ├── query-runner.py
-│       └── report-generator.py
+│       └── query-runner.py      # Query execution and reporting
 ├── frontend/                     # Visualization interface
 │   ├── index.html
 │   ├── Dockerfile
-│   └── deployment.yaml
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   └── route.yaml
 ├── neo4j/                        # Database configuration
 │   ├── kustomization.yaml
 │   └── values.yaml
 ├── applications/                 # ArgoCD applications
-│   ├── etl-stack.yaml
-│   ├── analysis-stack.yaml
-│   └── graph-stack.yaml
+│   ├── etl-stack.yaml           # ETL processes
+│   ├── analysis-stack.yaml      # Analysis tools
+│   └── graph-stack.yaml         # Neo4j + Frontend
 └── schema/
     └── graph-schema.cypher       # Complete graph schema
 ```
