@@ -4,7 +4,7 @@ metadata:
   name: etl-stack
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   project: default
   source:
@@ -21,11 +21,6 @@ spec:
     syncOptions:
       - CreateNamespace=true
 ---
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: graph-system
----
 # Jira ETL CronJob
 apiVersion: batch/v1
 kind: CronJob
@@ -33,7 +28,7 @@ metadata:
   name: jira-etl
   namespace: graph-system
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   schedule: "0 */6 * * *"  # Every 6 hours
   jobTemplate:
@@ -93,7 +88,7 @@ metadata:
   name: github-etl
   namespace: graph-system
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   schedule: "15 */6 * * *"  # Every 6 hours, offset by 15 minutes
   jobTemplate:
@@ -143,7 +138,7 @@ metadata:
   name: cross-reference-etl
   namespace: graph-system
   annotations:
-    argocd.argoproj.io/sync-wave: "3"  # Runs after discrete ETL processes
+    argocd.argoproj.io/sync-wave: "4"  # Runs after discrete ETL processes
 spec:
   schedule: "30 */6 * * *"  # Every 6 hours, offset by 30 minutes
   jobTemplate:

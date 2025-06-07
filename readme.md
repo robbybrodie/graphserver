@@ -52,20 +52,16 @@ graphserver/
 ├── etl/
 │   ├── jira/                     # Discrete Jira ETL
 │   │   ├── jira_etl.py          # Core Jira extraction
-│   │   ├── cronjob.yaml         # Kubernetes CronJob
 │   │   ├── Dockerfile
 │   │   └── requirements.txt
 │   ├── github/                   # Discrete GitHub ETL  
 │   │   ├── github_etl.py        # Core GitHub extraction
-│   │   ├── cronjob.yaml         # Kubernetes CronJob
 │   │   ├── Dockerfile
 │   │   └── requirements.txt
-│   ├── cross-reference/          # Cross-system relationship processing
-│   │   ├── cross_ref_etl.py     # Link detection and creation
-│   │   ├── Dockerfile
-│   │   └── requirements.txt
-│   └── shared/
-│       └── configmap.yaml       # Shared configuration
+│   └── cross-reference/          # Cross-system relationship processing
+│       ├── cross_ref_etl.py     # Link detection and creation
+│       ├── Dockerfile
+│       └── requirements.txt
 ├── analysis/
 │   ├── queries/                  # Pre-built analysis queries
 │   │   ├── relationship-mapping.cypher
@@ -74,18 +70,12 @@ graphserver/
 │   └── tools/                    # Analysis utilities
 │       └── query-runner.py      # Query execution and reporting
 ├── frontend/                     # Visualization interface
-│   ├── index.html
-│   ├── Dockerfile
-│   ├── deployment.yaml
-│   ├── service.yaml
-│   └── route.yaml
-├── neo4j/                        # Database configuration
-│   ├── kustomization.yaml
-│   └── values.yaml
-├── applications/                 # ArgoCD applications
-│   ├── etl-stack.yaml           # ETL processes
-│   ├── analysis-stack.yaml      # Analysis tools
-│   └── graph-stack.yaml         # Neo4j + Frontend
+│   ├── index.html               # Frontend application
+│   └── Dockerfile               # Container build
+├── applications/                 # ArgoCD applications (complete deployments)
+│   ├── graph-stack.yaml         # Neo4j + Frontend + Schema
+│   ├── etl-stack.yaml           # ETL processes + Configuration
+│   └── analysis-stack.yaml      # Analysis tools + Reports
 └── schema/
     └── graph-schema.cypher       # Complete graph schema
 ```
@@ -130,9 +120,9 @@ graphserver/
 git clone <your-fork>
 cd graphserver
 
-# Update configuration
-cp etl/shared/configmap.yaml.example etl/shared/configmap.yaml
-# Edit with your Jira projects, GitHub repos, etc.
+# Update repository URLs in application manifests
+sed -i 's/YOUR-USERNAME/your-github-username/g' applications/*.yaml
+sed -i 's/YOUR-QUAY-USERNAME/your-quay-username/g' applications/*.yaml
 ```
 
 2. **Create Secrets**
@@ -141,71 +131,60 @@ cp etl/shared/configmap.yaml.example etl/shared/configmap.yaml
 oc create secret generic jira-credentials \
   --from-literal=url=https://your-domain.atlassian.net \
   --from-literal=username=your-email@company.com \
-  --from-literal=api-token=YOUR-JIRA-API-TOKEN
+  --from-literal=api-token=YOUR-JIRA-API-TOKEN \
+  -n graph-system
 
 # GitHub credentials  
 oc create secret generic github-credentials \
-  --from-literal=token=YOUR-GITHUB-TOKEN
+  --from-literal=token=YOUR-GITHUB-TOKEN \
+  -n graph-system
 
 # Neo4j credentials
 oc create secret generic neo4j-auth \
-  --from-literal=password=YOUR-NEO4J-PASSWORD
+  --from-literal=password=YOUR-NEO4J-PASSWORD \
+  -n graph-system
 ```
 
-3. **Deploy via ArgoCD**
+3. **Deploy via ArgoCD (Automatic Sync Waves)**
 ```bash
-oc apply -f applications/graph-stack.yaml      # Neo4j + Frontend
-oc apply -f applications/etl-stack.yaml        # ETL processes
-oc apply -f applications/analysis-stack.yaml   # Analysis tools
+# Deploy all applications - ArgoCD will handle proper ordering via sync waves
+oc apply -f applications/
+
+# Or deploy individually in order:
+oc apply -f applications/graph-stack.yaml      # Wave 1: Neo4j + Frontend + Schema
+oc apply -f applications/etl-stack.yaml        # Wave 3: ETL processes + Config
+oc apply -f applications/analysis-stack.yaml   # Wave 5: Analysis tools + Reports
 ```
 
-### ETL Process Flow
+4. **Verify Deployment**
+```bash
+# Check ArgoCD applications
+oc get applications -n argocd
 
-1. **Discrete Loading** (Parallel)
-   - Jira ETL loads issues with internal hierarchy
-   - GitHub ETL loads issues/PRs with repository structure
+# Check deployment status
+oc get pods -n graph-system
+oc get cronjobs -n graph-system
 
-2. **Cross-Reference Processing** (Sequential)
-   - Scans loaded data for cross-references
-   - Creates relationship links between systems
-   - Extracts technology and component mentions
-
-3. **Analysis Ready**
-   - Combined graph available for querying
-   - Visualization tools can access unified data
+# Access frontend
+oc get route graph-frontend -n graph-system
+```
 
 ## Configuration
 
-### Jira Configuration
-```yaml
-jira:
-  projects: ["PROJECT1", "PROJECT2"]
-  issue_types: ["Epic", "Story", "Task", "Bug"]
-  custom_fields:
-    - "customfield_10001"  # Story Points
-    - "customfield_10002"  # Sprint
+Configuration is now embedded in the ArgoCD application manifests. Update these values in `applications/etl-stack.yaml`:
+
+### GitHub Repositories
+```bash
+# Update in etl-stack.yaml
+- name: GITHUB_REPOS
+  value: "ansible/ansible,ansible/ansible-runner,ansible/awx,redhat-cop/automation-good-practices"
 ```
 
-### GitHub Configuration  
-```yaml
-github:
-  repositories: 
-    - "ansible/ansible"
-    - "ansible/ansible-runner"
-    - "ansible/awx"
-    - "redhat-cop/automation-good-practices"
-  include_pull_requests: true
-```
-
-### Cross-Reference Patterns
-```yaml
-cross_reference:
-  jira_patterns:
-    - "[A-Z]+-\\d+"           # Standard Jira keys
-    - "JIRA[:\\s]+([A-Z]+-\\d+)"  # "JIRA: ABC-123"
-  github_patterns:
-    - "#(\\d+)"               # Issue numbers
-    - "github\\.com/.+/(\\d+)" # Full URLs
+### Jira Projects  
+```bash
+# Update in etl-stack.yaml
+- name: JIRA_PROJECTS
+  value: "PROJECT1,PROJECT2,PROJECT3"
 ```
 
 ## Analysis Examples
@@ -234,13 +213,43 @@ RETURN j.key, j.summary, g.number, g.title, r.name
 
 ## Deployment
 
-The system uses ArgoCD for GitOps deployment with three application stacks:
+The system uses ArgoCD for GitOps deployment with three self-contained application stacks that deploy in sequence using sync waves:
 
-1. **graph-stack**: Neo4j database and frontend
-2. **etl-stack**: All ETL processes (Jira, GitHub, Cross-reference)  
-3. **analysis-stack**: Query tools and reporting utilities
+### **Application Stack Architecture**
 
-Each stack can be deployed independently, with proper dependency management through ArgoCD sync waves.
+1. **graph-stack** (Sync Wave 1)
+   - **Neo4j StatefulSet** with persistent storage and health checks
+   - **Schema Setup Job** that waits for Neo4j readiness before applying constraints
+   - **Frontend Deployment** with visualization interface
+   - **OpenShift Route** for external access
+
+2. **etl-stack** (Sync Wave 3)
+   - **Jira ETL CronJob** (runs every 6 hours)
+   - **GitHub ETL CronJob** (runs every 6 hours, offset by 15 minutes)
+   - **Cross-Reference ETL CronJob** (runs 30 minutes after discrete ETL)
+   - **Complete ETL Configuration** with Cypher queries and patterns
+
+3. **analysis-stack** (Sync Wave 5)
+   - **Query Runner Deployment** for interactive analysis
+   - **Analysis Reports CronJob** (weekly automated reports)
+   - **Persistent Storage** for report output
+
+### **Sync Wave Sequence**
+```
+Wave 0: Namespace creation
+Wave 1: Neo4j + Schema + Frontend infrastructure
+Wave 2: Schema setup (waits for Neo4j readiness)
+Wave 3: ETL processes (discrete Jira & GitHub loading)
+Wave 4: Cross-reference processing (after discrete ETL)
+Wave 5: Analysis tools (after all data is loaded)
+```
+
+### **Deployment Benefits**
+- ✅ **Automatic dependency management** - ArgoCD handles proper ordering
+- ✅ **Self-contained applications** - each stack includes all its resources
+- ✅ **No resource duplication** - clean separation of concerns
+- ✅ **Rollback safety** - each stack can be rolled back independently
+- ✅ **GitOps ready** - all configuration in Git, no manual steps
 
 ## Monitoring
 
