@@ -24,10 +24,21 @@ spec:
           - --https-address=:8443
           - --upstream=http://localhost:8080
           - --client-id=graph-frontend
-          - --client-secret=REPLACE_ME
-          - --cookie-secret=REPLACE_ME_BASE64
+          - --client-secret=$(CLIENT_SECRET)
+          - --cookie-secret=$(COOKIE_SECRET)
           - --email-domain=*
           - --scope=user:info user:check-access
           - --openshift-sar={"resource":"pods","verb":"get"}
+        env:
+        - name: CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: oauth-proxy-secrets
+              key: client-secret
+        - name: COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: oauth-proxy-secrets
+              key: cookie-secret
         ports:
         - containerPort: 8443

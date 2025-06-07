@@ -1,7 +1,7 @@
 acceptLicenseAgreement: "yes"
 neo4j:
   name: neo4j
-  password: changeme
+  passwordFromSecret: neo4j-auth
 service:
   type: ClusterIP
 resources:

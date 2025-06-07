@@ -49,22 +49,14 @@ spec:
                   name: jira-github-integration-secrets
                   key: github-token
             - name: NEO4J_URI
-              valueFrom:
-                secretKeyRef:
-                  name: neo4j-auth
-                  key: NEO4J_URI
+              value: "bolt://neo4j:7687"
             - name: NEO4J_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: neo4j-auth
-                  key: NEO4J_AUTH
-                  # Extract username from NEO4J_AUTH (format: username/password)
+              value: "neo4j"
             - name: NEO4J_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: neo4j-auth
-                  key: NEO4J_AUTH
-                  # Extract password from NEO4J_AUTH (format: username/password)
+                  key: password
             - name: NEO4J_DATABASE
               value: "neo4j"
             volumeMounts:
@@ -161,17 +153,14 @@ spec:
                   name: jira-github-integration-secrets
                   key: github-token
             - name: NEO4J_URI
-              valueFrom:
-                secretKeyRef:
-                  name: neo4j-auth
-                  key: NEO4J_URI
+              value: "bolt://neo4j:7687"
             - name: NEO4J_USERNAME
-              value: "neo4j"  # Default Neo4j username
+              value: "neo4j"
             - name: NEO4J_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: neo4j-auth
-                  key: NEO4J_PASSWORD
+                  key: password
             - name: NEO4J_DATABASE
               value: "neo4j"
             volumeMounts:
@@ -233,17 +222,14 @@ spec:
             "]
             env:
             - name: NEO4J_URI
-              valueFrom:
-                secretKeyRef:
-                  name: neo4j-auth
-                  key: NEO4J_URI
+              value: "bolt://neo4j:7687"
             - name: NEO4J_USERNAME
               value: "neo4j"
             - name: NEO4J_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: neo4j-auth
-                  key: NEO4J_PASSWORD
+                  key: password
             - name: NEO4J_DATABASE
               value: "neo4j"
             volumeMounts:

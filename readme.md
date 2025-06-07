@@ -356,10 +356,9 @@ sed -i 's/repo1,repo2,repo3/YOUR-REPO-1,YOUR-REPO-2,YOUR-REPO-3/g' etl/github/cr
 # Update container registry references
 find . -name "*.yaml" -exec sed -i 's/quay.io\/myorg/quay.io\/YOUR-QUAY-USERNAME/g' {} \;
 
-# Update Neo4j password in values.yaml
-sed -i 's/changeme/YOUR-SECURE-NEO4J-PASSWORD/g' neo4j/values.yaml
+# Neo4j password and OAuth secrets are now automatically referenced from secrets
 
-# Commit configuration changes
+# Note: Neo4j password and OAuth secrets are now automatically referenced from the secrets created in Step 6# Commit configuration changes
 git add .
 git commit -m "Update configuration for deployment"
 git push origin main

@@ -71,7 +71,9 @@ company-specific/
 Update the secrets in `applications/jira-github-integration-stack.yaml`:
 
 ```yaml
-stringData:
+# Note: Secrets are now managed through OpenShift secrets (see main README Step 6)
+  # The following values should be created as secrets instead of hardcoded:
+  stringData:
   jira-server: "https://your-jira-instance.atlassian.net"
   jira-username: "your-jira-username"
   jira-token: "your-jira-api-token"
