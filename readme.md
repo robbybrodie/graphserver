@@ -189,10 +189,11 @@ jira:
 ### GitHub Configuration  
 ```yaml
 github:
-  organizations: ["myorg"]
   repositories: 
-    - "myorg/repo1"
-    - "myorg/repo2"
+    - "ansible/ansible"
+    - "ansible/ansible-runner"
+    - "ansible/awx"
+    - "redhat-cop/automation-good-practices"
   include_pull_requests: true
 ```
 

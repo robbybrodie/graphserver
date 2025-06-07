@@ -109,10 +109,8 @@ spec:
                 secretKeyRef:
                   name: github-credentials
                   key: token
-            - name: GITHUB_ORG
-              value: "YOUR-GITHUB-ORG"  # Update with your organization
             - name: GITHUB_REPOS
-              value: "repo1,repo2,repo3"  # Update with your repositories
+              value: "ansible/ansible,ansible/ansible-runner,ansible/awx"  # Update with full repo names (owner/repo)
             - name: NEO4J_URI
               valueFrom:
                 configMapKeyRef:

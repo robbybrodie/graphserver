@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 class GitHubETL:
     def __init__(self):
         self.github_token = os.getenv('GITHUB_TOKEN')
-        self.github_org = os.getenv('GITHUB_ORG')
         self.github_repos = os.getenv('GITHUB_REPOS', '').split(',')
         self.neo4j_uri = os.getenv('NEO4J_URI')
         self.neo4j_user = os.getenv('NEO4J_USER')
@@ -31,7 +30,7 @@ class GitHubETL:
         
         # Validate required environment variables
         required_vars = [
-            'GITHUB_TOKEN', 'GITHUB_ORG',
+            'GITHUB_TOKEN', 'GITHUB_REPOS',
             'NEO4J_URI', 'NEO4J_USER', 'NEO4J_PASSWORD'
         ]
         
@@ -86,10 +85,10 @@ class GitHubETL:
             )
             """
     
-    def fetch_repository_issues(self, repo_name: str) -> List[Dict]:
+    def fetch_repository_issues(self, repo_full_name: str) -> List[Dict]:
         """Fetch issues from a GitHub repository"""
         try:
-            repo = self.github.get_repo(f"{self.github_org}/{repo_name}")
+            repo = self.github.get_repo(repo_full_name)
             
             # Get issues updated in the last 24 hours for incremental sync
             since = datetime.now() - timedelta(days=1)
@@ -107,10 +106,10 @@ class GitHubETL:
                     'state': issue.state,
                     'created': issue.created_at.isoformat(),
                     'updated': issue.updated_at.isoformat(),
-                    'repo': repo_name,
-                    'owner': self.github_org,
-                    'full_name': repo.full_name,
+                    'repository': repo.full_name,
+                    'organization': repo.owner.login,
                     'author': issue.user.login,
+                    'url': issue.html_url,
                     'assignees': [assignee.login for assignee in issue.assignees],
                     'labels': [label.name for label in issue.labels]
                 }
@@ -119,13 +118,13 @@ class GitHubETL:
             return issues
             
         except Exception as e:
-            logger.error(f"Error fetching issues from {repo_name}: {e}")
+            logger.error(f"Error fetching issues from {repo_full_name}: {e}")
             return []
     
-    def fetch_repository_prs(self, repo_name: str) -> List[Dict]:
+    def fetch_repository_prs(self, repo_full_name: str) -> List[Dict]:
         """Fetch pull requests from a GitHub repository"""
         try:
-            repo = self.github.get_repo(f"{self.github_org}/{repo_name}")
+            repo = self.github.get_repo(repo_full_name)
             
             # Get PRs updated in the last 24 hours for incremental sync
             since = datetime.now() - timedelta(days=1)
@@ -145,10 +144,10 @@ class GitHubETL:
                     'updated': pr.updated_at.isoformat(),
                     'merged': pr.merged,
                     'merged_at': pr.merged_at.isoformat() if pr.merged_at else None,
-                    'repo': repo_name,
-                    'owner': self.github_org,
-                    'full_name': repo.full_name,
+                    'repository': repo.full_name,
+                    'organization': repo.owner.login,
                     'author': pr.user.login,
+                    'url': pr.html_url,
                     'assignees': [assignee.login for assignee in pr.assignees],
                     'labels': [label.name for label in pr.labels],
                     'base_branch': pr.base.ref,
@@ -159,7 +158,7 @@ class GitHubETL:
             return prs
             
         except Exception as e:
-            logger.error(f"Error fetching PRs from {repo_name}: {e}")
+            logger.error(f"Error fetching PRs from {repo_full_name}: {e}")
             return []
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
@@ -169,52 +168,61 @@ class GitHubETL:
             for issue in issues:
                 try:
                     session.run(self.github_cypher, issue)
-                    logger.info(f"Loaded issue: {issue['repo']}#{issue['number']}")
+                    logger.info(f"Loaded issue: {issue['repository']}#{issue['number']}")
                 except Exception as e:
-                    logger.error(f"Failed to load issue {issue['repo']}#{issue['number']}: {e}")
+                    logger.error(f"Failed to load issue {issue['repository']}#{issue['number']}: {e}")
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def load_prs_to_neo4j(self, prs: List[Dict]):
         """Load GitHub pull requests into Neo4j"""
-        pr_cypher = """
-        MERGE (pr:PullRequest {number: $number, repo: $repo})
-        SET pr.title = $title,
-            pr.body = $body,
-            pr.state = $state,
-            pr.merged = $merged,
-            pr.created = datetime($created),
-            pr.updated = datetime($updated),
-            pr.merged_at = CASE WHEN $merged_at IS NOT NULL THEN datetime($merged_at) ELSE NULL END,
-            pr.base_branch = $base_branch,
-            pr.head_branch = $head_branch
-        
-        MERGE (r:Repository {name: $repo})
-        SET r.owner = $owner,
-            r.full_name = $full_name
-        
-        MERGE (pr)-[:BELONGS_TO]->(r)
-        
-        MERGE (u:User {login: $author})
-        MERGE (pr)-[:CREATED_BY]->(u)
-        
-        FOREACH (assignee IN $assignees |
-          MERGE (a:User {login: assignee})
-          MERGE (pr)-[:ASSIGNED_TO]->(a)
-        )
-        
-        FOREACH (label IN $labels |
-          MERGE (l:Label {name: label})
-          MERGE (pr)-[:HAS_LABEL]->(l)
-        )
-        """
+        # Use the same Cypher query from config for PRs
+        try:
+            with open('/app/config/github-pr-cypher', 'r') as f:
+                pr_cypher = f.read()
+        except FileNotFoundError:
+            logger.warning("PR Cypher config not found, using default query")
+            pr_cypher = """
+            MERGE (pr:PullRequest {repository: $repository, number: $number})
+            SET pr.title = $title,
+                pr.body = $body,
+                pr.state = $state,
+                pr.merged = $merged,
+                pr.created = datetime($created),
+                pr.updated = datetime($updated),
+                pr.merged_at = CASE WHEN $merged_at IS NOT NULL THEN datetime($merged_at) ELSE NULL END,
+                pr.author = $author,
+                pr.url = $url,
+                pr.base_branch = $base_branch,
+                pr.head_branch = $head_branch,
+                pr.labels = $labels,
+                pr.organization = $organization,
+                pr.lastSynced = datetime()
+            
+            MERGE (r:Repository {full_name: $repository})
+            SET r.name = split($repository, '/')[1],
+                r.owner = $organization
+            
+            MERGE (o:GitHubOrganization {name: $organization})
+            
+            MERGE (pr)-[:BELONGS_TO]->(r)
+            MERGE (r)-[:OWNED_BY]->(o)
+            
+            MERGE (u:User {name: $author})
+            MERGE (pr)-[:CREATED_BY]->(u)
+            
+            FOREACH (label IN $labels |
+              MERGE (l:Label {name: label})
+              MERGE (pr)-[:HAS_LABEL]->(l)
+            )
+            """
         
         with self.driver.session() as session:
             for pr in prs:
                 try:
                     session.run(pr_cypher, pr)
-                    logger.info(f"Loaded PR: {pr['repo']}#{pr['number']}")
+                    logger.info(f"Loaded PR: {pr['repository']}#{pr['number']}")
                 except Exception as e:
-                    logger.error(f"Failed to load PR {pr['repo']}#{pr['number']}: {e}")
+                    logger.error(f"Failed to load PR {pr['repository']}#{pr['number']}: {e}")
     
     def run_etl(self):
         """Run the complete ETL process"""
