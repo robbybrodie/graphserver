@@ -62,23 +62,26 @@ company-specific/
 ## Setup Instructions
 
 ### 1. Prerequisites
+- Complete the main README setup through Step 6 (secrets creation)
 - Kubernetes cluster with ArgoCD
 - Neo4j database (existing graphserver setup)
-- JIRA API access (username + token)
-- GitHub API access (personal access token)
+- JIRA API access (username + token) - same as main stack
+- GitHub API access (personal access token) - same as main stack
 
 ### 2. Configure Secrets
-Update the secrets in `applications/jira-github-integration-stack.yaml`:
+The company-specific integration requires additional secrets beyond those created in the main README. Follow the main README Step 6 for basic secret setup, then create the company-specific secrets:
 
-```yaml
-# Note: Secrets are now managed through OpenShift secrets (see main README Step 6)
-  # The following values should be created as secrets instead of hardcoded:
-  stringData:
-  jira-server: "https://your-jira-instance.atlassian.net"
-  jira-username: "your-jira-username"
-  jira-token: "your-jira-api-token"
-  github-token: "your-github-personal-access-token"
+```bash
+# Create company-specific secrets (in addition to main README Step 6)
+oc create secret generic jira-github-integration-secrets \
+  --from-literal=jira-server=https://your-jira-instance.atlassian.net \
+  --from-literal=jira-username=your-jira-username \
+  --from-literal=jira-token=your-jira-api-token \
+  --from-literal=github-token=your-github-personal-access-token \
+  -n graphserver
 ```
+
+**Note**: This uses the same GitHub token and JIRA credentials as the main stack, but in a separate secret for the company-specific namespace (`graphserver`).
 
 ### 3. Deploy Schema
 Apply the Neo4j schema:
