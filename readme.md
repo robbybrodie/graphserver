@@ -105,10 +105,205 @@ graphserver/
 - **Component**: Logical system components
 - **Theme**: Strategic themes and initiatives
 
+## Prerequisites
+
+### ROSA Cluster Requirements
+- **ROSA Cluster**: Version 4.12+ with admin access
+- **Machine Pool**: At least 3 worker nodes with 4 vCPU, 16GB RAM each
+- **Storage**: Default storage class configured (gp3-csi recommended)
+- **Networking**: Cluster must have internet access for container registry pulls
+
+### Required Tools
+Install the following tools on your local machine:
+
+```bash
+# Install OpenShift CLI
+curl -O https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+tar -xzf openshift-client-linux.tar.gz
+sudo mv oc kubectl /usr/local/bin/
+
+# Install Podman (for container builds)
+sudo dnf install -y podman
+
+# Install Git
+sudo dnf install -y git
+
+# Install jq (for JSON processing)
+sudo dnf install -y jq
+```
+
+### Container Registry Access
+- **Quay.io Account**: Create account at https://quay.io
+- **Registry Credentials**: Generate robot account or use personal credentials
+- **Repository Access**: Create repositories for your containers
+
+### API Access Requirements
+
+#### JIRA API Access
+- **JIRA Cloud Instance**: Access to Atlassian JIRA Cloud
+- **API Token**: Generate from https://id.atlassian.com/manage-profile/security/api-tokens
+- **User Email**: Email address associated with JIRA account
+- **Project Access**: Read permissions for target JIRA projects
+
+#### GitHub API Access
+- **GitHub Account**: Personal or organization account
+- **Personal Access Token**: Generate from GitHub Settings > Developer settings > Personal access tokens
+- **Required Scopes**: repo, read:org, read:user
+- **Organization Access**: Read permissions for target repositories
+
+### Argo CD Installation
+If Argo CD is not already installed on your ROSA cluster:
+
+#### 1. Access Your ROSA Cluster
+First, you need to connect to your ROSA cluster. There are several ways to do this:
+
+**Option A: Using ROSA CLI (Recommended)**
+
+```bash
+# Install ROSA CLI if not already installed
+curl -Ls https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz | tar xz
+sudo mv rosa /usr/local/bin/rosa
+
+# Login to your Red Hat account
+rosa login
+
+# List your clusters
+rosa list clusters
+
+# Get login command for your cluster
+rosa describe cluster YOUR-CLUSTER-NAME --output json | jq -r '.api.url'
+
+# Login using the cluster API URL
+oc login https://api.YOUR-CLUSTER-NAME.RANDOM-STRING.p1.openshiftapps.com:6443
+```
+
+**Option B: Using OpenShift Console**
+
+```bash
+# 1. Go to https://console.redhat.com/openshift
+# 2. Select your ROSA cluster
+# 3. Click "Open Console" 
+# 4. In the OpenShift console, click your username (top right)
+# 5. Select "Copy login command"
+# 6. Click "Display Token"
+# 7. Copy and run the oc login command
+
+# Example of what you'll copy:
+oc login --token=sha256~EXAMPLE-TOKEN --server=https://api.YOUR-CLUSTER.p1.openshiftapps.com:6443
+```
+
+**Option C: Using Cluster Credentials**
+
+```bash
+# If you have cluster admin credentials
+oc login -u kubeadmin -p YOUR-KUBEADMIN-PASSWORD https://api.YOUR-CLUSTER.p1.openshiftapps.com:6443
+```
+
+#### 2. Verify Cluster Access
+```bash
+# Verify you're connected to the right cluster
+oc whoami
+oc cluster-info
+
+# Check your permissions
+oc auth can-i create namespace
+oc auth can-i create deployment
+
+# List existing projects
+oc get projects
+```
+
+#### 3. Install Argo CD
+```bash
+# Create Argo CD namespace
+oc create namespace argocd
+
+# Install Argo CD operator
+oc apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Create required secrets that are missing from the default installation
+# Create Redis secret (required for ArgoCD components)
+oc create secret generic argocd-redis --from-literal=auth="" -n argocd
+
+# Generate and add server secret key to argocd-secret
+SECRET_KEY=$(openssl rand -base64 32)
+oc patch secret argocd-secret -n argocd --type merge -p="{\"data\":{\"server.secretkey\":\"$(echo -n $SECRET_KEY | base64)\"}}"
+
+# Configure ArgoCD server to run in insecure mode (required for OpenShift routes)
+oc patch configmap argocd-cmd-params-cm -n argocd --type merge -p='{"data":{"server.insecure":"true"}}'
+
+# Add dex configuration to argocd-cm ConfigMap
+oc patch configmap argocd-cm -n argocd --type merge -p='{"data":{"dex.config":"issuer: https://argocd-dex-server.argocd.svc.cluster.local:5556/dex\nstorage:\n  type: memory\nweb:\n  http: 0.0.0.0:5556\nlogger:\n  level: \"debug\"\n  format: text\nconnectors:\n- type: oidc\n  id: oidc\n  name: OpenShift\n  config:\n    issuer: https://kubernetes.default.svc.cluster.local\n    clientID: system:serviceaccount:argocd:argocd-dex-server\n    clientSecret: \"\"\n    requestedScopes: [\"openid\", \"profile\", \"email\", \"groups\"]\n    requestedIDTokenClaims: {\"groups\": {\"essential\": true}}\nstaticClients:\n- id: argo-cd-cli\n  name: \"Argo CD CLI\"\n  public: true\n- id: argo-cd\n  name: \"Argo CD\"\n  secret: \"$2a$10$mivhwttXM0VwgbPLQxcZJOa.ClzGraLqXtx5Mq8gLjHA3wTTILjjK\"\n  redirectURIs:\n  - https://argocd-server/auth/callback"}}'
+
+# Wait for Argo CD to be ready (this may take a few minutes)
+oc wait --for=condition=available --timeout=600s deployment/argocd-server -n argocd
+
+# Restart ArgoCD deployments to pick up the new configuration
+oc rollout restart deployment/argocd-dex-server -n argocd
+oc rollout restart deployment/argocd-server -n argocd
+oc rollout restart deployment/argocd-repo-server -n argocd
+oc rollout restart statefulset/argocd-application-controller -n argocd
+
+# Wait for all components to be running
+echo "Waiting for ArgoCD components to be ready..."
+oc wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-dex-server -n argocd --timeout=300s
+oc wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server -n argocd --timeout=300s
+oc wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-repo-server -n argocd --timeout=300s
+oc wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-application-controller -n argocd --timeout=300s
+
+# Create Argo CD route (using HTTP port since server runs in insecure mode)
+oc create route edge argocd-server --service=argocd-server --port=http --insecure-policy=Redirect -n argocd
+
+# Get Argo CD admin password
+ARGOCD_PASSWORD=$(oc get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d)
+
+# Get the Argo CD URL
+ARGOCD_URL="https://$(oc get route argocd-server -n argocd -o jsonpath='{.spec.host}')"
+
+echo "Argo CD URL: $ARGOCD_URL"
+echo "Username: admin"
+echo "Password: $ARGOCD_PASSWORD"
+```
+
+#### 4. Access Argo CD UI
+```bash
+# Get the Argo CD URL and admin password
+ARGOCD_URL="https://$(oc get route argocd-server -n argocd -o jsonpath='{.spec.host}')"
+ARGOCD_PASSWORD=$(oc get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d)
+
+echo "Argo CD URL: $ARGOCD_URL"
+echo "Username: admin"
+echo "Password: $ARGOCD_PASSWORD"
+
+# Open in browser (macOS)
+open "$ARGOCD_URL"
+
+# Open in browser (Linux)
+xdg-open "$ARGOCD_URL"
+```
+
 ## Getting Started
 
-### Prerequisites
-- ROSA/OpenShift cluster with ArgoCD
+### System Components
+The Argo CD applications deploy the following components:
+
+#### Graph Stack (Sync Wave 1)
+- **Neo4j Database**: Community edition 5.15 with APOC plugins
+- **Graph Schema**: Constraints and indexes for optimal performance
+- **Frontend Interface**: Web-based visualization and query interface
+
+#### ETL Stack (Sync Wave 3)
+- **Jira ETL**: Extracts issues, projects, and relationships
+- **GitHub ETL**: Extracts issues, PRs, and repository data
+- **Cross-Reference ETL**: Creates relationships between systems
+
+#### Analysis Stack (Sync Wave 5)
+- **Query Runner**: Interactive analysis tool
+- **Report Generator**: Automated weekly reports
+- **Persistent Storage**: Report archival and history
+
+### Quick Start Prerequisites
+- ROSA/OpenShift cluster with ArgoCD installed
 - Jira API access (username + API token)
 - GitHub API access (personal access token)
 - Container registry access (Quay.io recommended)
