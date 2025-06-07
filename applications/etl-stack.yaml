@@ -2,14 +2,15 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: etl-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   project: default
   source:
-    repoURL: https://github.com/myorg/graph-visualisation
+    repoURL: https://github.com/YOUR-USERNAME/graphserver.git
     targetRevision: HEAD
     path: etl
-    directory:
-      recurse: true
   destination:
     server: https://kubernetes.default.svc
     namespace: graph-system
@@ -17,3 +18,314 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: graph-system
+---
+# Jira ETL CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: jira-etl
+  namespace: graph-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  schedule: "0 */6 * * *"  # Every 6 hours
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: jira-etl
+            image: quay.io/YOUR-QUAY-USERNAME/jira-etl:latest
+            env:
+            - name: JIRA_URL
+              valueFrom:
+                secretKeyRef:
+                  name: jira-credentials
+                  key: url
+            - name: JIRA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: jira-credentials
+                  key: username
+            - name: JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: jira-credentials
+                  key: api-token
+            - name: NEO4J_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: etl-config
+                  key: neo4j-uri
+            - name: NEO4J_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: etl-config
+                  key: neo4j-user
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: password
+            - name: JIRA_PROJECTS
+              value: "PROJECT1,PROJECT2,PROJECT3"  # Update with your projects
+            volumeMounts:
+            - name: etl-config
+              mountPath: /app/config
+              readOnly: true
+          volumes:
+          - name: etl-config
+            configMap:
+              name: etl-config
+          restartPolicy: OnFailure
+---
+# GitHub ETL CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: github-etl
+  namespace: graph-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  schedule: "15 */6 * * *"  # Every 6 hours, offset by 15 minutes
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: github-etl
+            image: quay.io/YOUR-QUAY-USERNAME/github-etl:latest
+            env:
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-credentials
+                  key: token
+            - name: GITHUB_ORG
+              value: "YOUR-GITHUB-ORG"  # Update with your organization
+            - name: GITHUB_REPOS
+              value: "repo1,repo2,repo3"  # Update with your repositories
+            - name: NEO4J_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: etl-config
+                  key: neo4j-uri
+            - name: NEO4J_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: etl-config
+                  key: neo4j-user
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: password
+            volumeMounts:
+            - name: etl-config
+              mountPath: /app/config
+              readOnly: true
+          volumes:
+          - name: etl-config
+            configMap:
+              name: etl-config
+          restartPolicy: OnFailure
+---
+# Cross-Reference ETL CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cross-reference-etl
+  namespace: graph-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"  # Runs after discrete ETL processes
+spec:
+  schedule: "30 */6 * * *"  # Every 6 hours, offset by 30 minutes
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: cross-reference-etl
+            image: quay.io/YOUR-QUAY-USERNAME/cross-reference-etl:latest
+            env:
+            - name: NEO4J_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: etl-config
+                  key: neo4j-uri
+            - name: NEO4J_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: etl-config
+                  key: neo4j-user
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-auth
+                  key: password
+            volumeMounts:
+            - name: etl-config
+              mountPath: /app/config
+              readOnly: true
+          volumes:
+          - name: etl-config
+            configMap:
+              name: etl-config
+          restartPolicy: OnFailure
+---
+# ETL Configuration ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: etl-config
+  namespace: graph-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+data:
+  neo4j-uri: "bolt://neo4j.graph-system.svc.cluster.local:7687"
+  neo4j-user: "neo4j"
+  
+  # Cross-reference processing configuration
+  cross-reference-config: |
+    {
+      "jira_patterns": [
+        "[A-Z]+-\\d+",
+        "JIRA[:\\s]+([A-Z]+-\\d+)",
+        "jira\\..*?([A-Z]+-\\d+)"
+      ],
+      "github_patterns": [
+        "#(\\d+)",
+        "github\\.com/[\\w-]+/[\\w-]+/issues/(\\d+)",
+        "GH[:\\s]+#?(\\d+)"
+      ],
+      "technology_patterns": [
+        "\\b(ansible|python|kubernetes|openshift|docker|podman)\\b",
+        "\\b(terraform|helm|yaml|json|api)\\b",
+        "\\b(automation|devops|ci/cd|pipeline)\\b"
+      ],
+      "component_mapping": {
+        "automation-platform": ["ansible", "automation", "aap"],
+        "container-platform": ["kubernetes", "openshift", "k8s"],
+        "ci-cd": ["pipeline", "ci/cd", "jenkins", "tekton"],
+        "infrastructure": ["terraform", "infrastructure", "iac"]
+      }
+    }
+  
+  # Cypher queries for discrete data loading
+  jira-cypher: |
+    // Create JIRA Issue with enhanced data model
+    MERGE (i:Issue {key: $key})
+    SET i.summary = $summary,
+        i.description = $description,
+        i.status = $status,
+        i.priority = $priority,
+        i.issueType = $issueType,
+        i.project = $project,
+        i.created = datetime($created),
+        i.updated = datetime($updated),
+        i.assignee = $assignee,
+        i.reporter = $reporter,
+        i.labels = $labels,
+        i.components = $components,
+        i.lastSynced = datetime()
+    
+    // Create Project
+    MERGE (p:Project {key: $project})
+    SET p.name = $projectName
+    
+    // Create relationships
+    MERGE (i)-[:BELONGS_TO]->(p)
+    
+    // Create assignee relationship if exists
+    FOREACH (assignee IN CASE WHEN $assignee IS NOT NULL THEN [$assignee] ELSE [] END |
+      MERGE (u:User {name: assignee})
+      MERGE (i)-[:ASSIGNED_TO]->(u)
+    )
+    
+    // Create reporter relationship
+    MERGE (r:User {name: $reporter})
+    MERGE (i)-[:REPORTED_BY]->(r)
+  
+  github-cypher: |
+    // Create GitHub Issue with enhanced data model
+    MERGE (i:GitHubIssue {repository: $repository, number: $number})
+    SET i.title = $title,
+        i.body = $body,
+        i.state = $state,
+        i.created = datetime($created),
+        i.updated = datetime($updated),
+        i.author = $author,
+        i.url = $url,
+        i.labels = $labels,
+        i.organization = $organization,
+        i.lastSynced = datetime()
+    
+    // Create Repository
+    MERGE (r:Repository {full_name: $repository})
+    SET r.name = split($repository, '/')[1],
+        r.owner = $organization
+    
+    // Create Organization
+    MERGE (o:GitHubOrganization {name: $organization})
+    
+    // Create relationships
+    MERGE (i)-[:BELONGS_TO]->(r)
+    MERGE (r)-[:OWNED_BY]->(o)
+    
+    // Create author relationship
+    MERGE (u:User {name: $author})
+    MERGE (i)-[:CREATED_BY]->(u)
+    
+    // Create label relationships
+    FOREACH (label IN $labels |
+      MERGE (l:Label {name: label})
+      MERGE (i)-[:HAS_LABEL]->(l)
+    )
+
+  github-pr-cypher: |
+    // Create GitHub Pull Request
+    MERGE (pr:PullRequest {repository: $repository, number: $number})
+    SET pr.title = $title,
+        pr.body = $body,
+        pr.state = $state,
+        pr.merged = $merged,
+        pr.created = datetime($created),
+        pr.updated = datetime($updated),
+        pr.merged_at = CASE WHEN $merged_at IS NOT NULL THEN datetime($merged_at) ELSE NULL END,
+        pr.author = $author,
+        pr.url = $url,
+        pr.base_branch = $base_branch,
+        pr.head_branch = $head_branch,
+        pr.labels = $labels,
+        pr.organization = $organization,
+        pr.lastSynced = datetime()
+    
+    // Create Repository (if not exists)
+    MERGE (r:Repository {full_name: $repository})
+    SET r.name = split($repository, '/')[1],
+        r.owner = $organization
+    
+    // Create Organization
+    MERGE (o:GitHubOrganization {name: $organization})
+    
+    // Create relationships
+    MERGE (pr)-[:BELONGS_TO]->(r)
+    MERGE (r)-[:OWNED_BY]->(o)
+    
+    // Create author relationship
+    MERGE (u:User {name: $author})
+    MERGE (pr)-[:CREATED_BY]->(u)
+    
+    // Create label relationships
+    FOREACH (label IN $labels |
+      MERGE (l:Label {name: label})
+      MERGE (pr)-[:HAS_LABEL]->(l)
+    )
